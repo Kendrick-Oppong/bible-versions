@@ -1,0 +1,23 @@
+# Scraper generated files and checkpoints
+bible_data.json
+scraper_progress.json
+bible_scraper.log
+versions/
+html_cache/
+
+# Virtual environment and IDE configs
+.venv/
+.qodo/
+.vscode/
+.idea/
+
+# Python caching and compiled files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Package build files
+build/
+dist/
+*.egg-info/

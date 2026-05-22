@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools >= 61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bible-versions"
+version = "1.0.0"
+authors = [
+    {name = "Arron Taylor", email = "taylorarronj@gmail.com"},
+]
+description = "A free, open-source set of scripts that let you scrape Bible translations across 37 languages from BibleHub.com and store them as JSON for your own usage."
+readme = "README.md"
+requires-python = ">=3.7"
+classifiers = [
+    "Programming Language :: Python :: 3",
+]
+dependencies = [
+    "requests>=2.31.0",
+    "beautifulsoup4>=4.12.0",
+    "lxml>=4.9.0",
+    "html5lib>=1.1"
+]
+
+[project.scripts]
+bible-scraper = "scrapers.english_scraper:main"
+bible-scraper-apoc = "scrapers.apocrypha_scraper:main"
+bible-scraper-multi-lang = "scrapers.multilang_scraper:main"
+apply-book-name-map = "scrapers.helpers.apply_book_name_mapping:main"
+build-book-name-map = "scrapers.helpers.build_book_name_mapping:main"
+build-locale-map = "scrapers.helpers.build_locale_version_map:main"
+organize-versions-by-locale = "scrapers.helpers.organize_versions_by_locale:main"
