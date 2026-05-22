@@ -22,10 +22,16 @@ dependencies = [
 ]
 
 [project.scripts]
-bible-scraper = "scrapers.english_scraper:main"
+bible-scraper = "scraper:main"
+bible-verify = "verify:main"
+bible-export = "export:main"
 bible-scraper-apoc = "scrapers.apocrypha_scraper:main"
 bible-scraper-multi-lang = "scrapers.multilang_scraper:main"
 apply-book-name-map = "scrapers.helpers.apply_book_name_mapping:main"
 build-book-name-map = "scrapers.helpers.build_book_name_mapping:main"
 build-locale-map = "scrapers.helpers.build_locale_version_map:main"
 organize-versions-by-locale = "scrapers.helpers.organize_versions_by_locale:main"
+
+[tool.setuptools]
+py-modules = ["scraper", "verify", "export"]
+packages = ["scrapers", "scrapers.helpers"]
