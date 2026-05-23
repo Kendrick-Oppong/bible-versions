@@ -23,6 +23,7 @@ dependencies = [
 
 [project.scripts]
 bible-scraper = "scraper:main"
+bible-scraper-retry-missing = "scraper:retry_missing_main"
 bible-verify = "verify:main"
 bible-export = "export:main"
 bible-scraper-apoc = "scrapers.apocrypha_scraper:main"

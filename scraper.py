@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import html
 import re
+import verify
 
 # Configure logging: detailed logs go to file, console only gets warnings/errors
 logger = logging.getLogger("bible_scraper")
@@ -231,13 +232,20 @@ class BibleScraper:
         book_url = book_url_map.get(book, book.lower())
         return f"https://biblehub.com/{book_url}/{chapter}-{verse}.htm"
     
-    def fetch_page(self, url: str, book: str = None, chapter: int = None, verse: int = None) -> Optional[str]:
+    def fetch_page(
+        self,
+        url: str,
+        book: str = None,
+        chapter: int = None,
+        verse: int = None,
+        force_refresh: bool = False,
+    ) -> Optional[str]:
         """Fetch HTML content from URL with retry logic. Cache HTML locally for each verse."""
         cache_dir = Path("html_cache") / (book if book else "unknown")
         cache_dir.mkdir(parents=True, exist_ok=True)
         cache_file = cache_dir / f"{chapter}-{verse}.htm" if (chapter and verse) else None
         # Try to load from cache first
-        if cache_file and cache_file.exists():
+        if cache_file and cache_file.exists() and not force_refresh:
             try:
                 with open(cache_file, 'r', encoding='utf-8') as f:
                     logger.info(f"Loaded HTML from cache: {cache_file}")
@@ -357,10 +365,17 @@ class BibleScraper:
         if not translations:
             logger.warning(f"No translations found in verse page")
         return translations
-    def scrape_verse(self, book: str, chapter: int, verse: int) -> bool:
+    def scrape_verse(
+        self,
+        book: str,
+        chapter: int,
+        verse: int,
+        ignore_progress: bool = False,
+        force_refresh: bool = False,
+    ) -> bool:
         """Scrape a single verse page and extract all translations."""
         # Check if already completed
-        if self.is_verse_completed(book, chapter, verse):
+        if not ignore_progress and self.is_verse_completed(book, chapter, verse):
             logger.debug(f"Skipping already completed: {book} {chapter}:{verse}")
             return True
         
@@ -368,7 +383,7 @@ class BibleScraper:
         url = self.build_url(book, chapter, verse)
         logger.info(f"Scraping: {book} {chapter}:{verse}")
         # Use fetch_page with caching
-        html_content = self.fetch_page(url, book, chapter, verse)
+        html_content = self.fetch_page(url, book, chapter, verse, force_refresh=force_refresh)
         if not html_content:
             logger.error(f"Failed to fetch: {url}")
             return False
@@ -409,6 +424,119 @@ class BibleScraper:
         time.sleep(REQUEST_DELAY)
         
         return True
+
+    def canonical_to_scraper_book(self, canonical_book: str) -> str:
+        """Convert verify.py canonical book names to scraper.py cache/progress keys."""
+        return canonical_book.replace(" ", "_")
+
+    def find_missing_verse_refs(self) -> list[tuple[str, int, int]]:
+        """
+        Find verse pages that still have missing translation data after accounting
+        for standard omissions and source blanks.
+
+        The scraper fetches one page for all translations, so a single page retry
+        can potentially backfill multiple translations.
+        """
+        refs: set[tuple[str, int, int]] = set()
+
+        for version_code, version_data in self.data.items():
+            has_ot = any(
+                book in version_data
+                or self.canonical_to_scraper_book(book) in version_data
+                for book in verify.OT_BOOKS
+            )
+            has_nt = any(
+                book in version_data
+                or self.canonical_to_scraper_book(book) in version_data
+                for book in verify.NT_BOOKS
+            )
+
+            if has_ot and not has_nt:
+                books_to_check = verify.OT_BOOKS
+            elif has_nt and not has_ot:
+                books_to_check = verify.NT_BOOKS
+            elif has_ot and has_nt:
+                books_to_check = list(verify.BIBLE_STRUCTURE.keys())
+            else:
+                continue
+
+            for canonical_book in books_to_check:
+                book_data = version_data.get(canonical_book)
+                if book_data is None:
+                    book_data = version_data.get(self.canonical_to_scraper_book(canonical_book))
+
+                for chapter_idx, verse_count in enumerate(
+                    verify.BIBLE_STRUCTURE[canonical_book], start=1
+                ):
+                    chapter_data = book_data.get(str(chapter_idx)) if book_data else None
+                    for verse_idx in range(1, verse_count + 1):
+                        ref = (canonical_book, chapter_idx, verse_idx)
+                        if ref in verify.STANDARD_OMISSIONS:
+                            continue
+
+                        verse_text = chapter_data.get(str(verse_idx)) if chapter_data else None
+                        if verse_text is not None and str(verse_text).strip():
+                            continue
+
+                        if verify.is_source_blank(
+                            version_code, canonical_book, chapter_idx, verse_idx
+                        ):
+                            continue
+
+                        refs.add(
+                            (
+                                self.canonical_to_scraper_book(canonical_book),
+                                chapter_idx,
+                                verse_idx,
+                            )
+                        )
+
+        return sorted(refs)
+
+    def retry_missing(self, force_refresh: bool = False) -> None:
+        """Retry only pages containing verifier-reported missing verses."""
+        refs = self.find_missing_verse_refs()
+        total_refs = len(refs)
+
+        if total_refs == 0:
+            print("\nNo missing verse pages to retry.")
+            return
+
+        print(f"\nRetrying {total_refs:,} verse pages with verifier-reported gaps...")
+        if force_refresh:
+            print("Force refresh enabled: cached pages will be re-downloaded.")
+        else:
+            print("Using cached pages first. Add --force-refresh to re-download them.")
+
+        session_start_time = time.time()
+        session_completed = 0
+
+        for index, (book, chapter, verse) in enumerate(refs, start=1):
+            success = self.scrape_verse(
+                book,
+                chapter,
+                verse,
+                ignore_progress=True,
+                force_refresh=force_refresh,
+            )
+            if success:
+                session_completed += 1
+
+            self.draw_progress_bar(
+                completed=index,
+                total=total_refs,
+                current_book=book.replace("_", " "),
+                current_chapter=chapter,
+                current_verse=verse,
+                session_start_time=session_start_time,
+                session_completed=session_completed,
+                translations_count=len(self.data),
+            )
+
+        sys.stdout.write("\n\nTargeted retry completed.\n")
+        sys.stdout.flush()
+        self.save_data()
+        self.save_progress()
     
     def scrape_all(self) -> None:
         """Scrape all books, chapters, and verses with a live console progress bar."""
@@ -505,12 +633,22 @@ def main():
         action='store_true',
         help='Force overwrite existing data and start a new scrape without prompting'
     )
+    parser.add_argument(
+        '--retry-missing',
+        action='store_true',
+        help='Retry only verse pages that verify.py still reports as missing'
+    )
+    parser.add_argument(
+        '--force-refresh',
+        action='store_true',
+        help='When used with --retry-missing, re-download pages instead of using cached HTML first'
+    )
     
     args = parser.parse_args()
     progress_file = 'scraper_progress.json'
     
     # Prevent accidental overwrites when progress or data files already exist
-    if not args.resume and not args.overwrite:
+    if not args.resume and not args.overwrite and not args.retry_missing:
         if Path(args.output).exists() or Path(progress_file).exists():
             print("\n" + "!" * 80)
             print("⚠️   WARNING: Existing Bible data or progress files detected!")
@@ -544,14 +682,17 @@ def main():
     # Create scraper
     scraper = BibleScraper(output_file=args.output, progress_file=progress_file)
     
-    # Load progress if resuming
-    if args.resume:
+    # Load progress/data if resuming or doing a targeted retry.
+    if args.resume or args.retry_missing:
         logger.info("Resume mode enabled")
         scraper.load_progress()
     
     # Start scraping
     try:
-        scraper.scrape_all()
+        if args.retry_missing:
+            scraper.retry_missing(force_refresh=args.force_refresh)
+        else:
+            scraper.scrape_all()
         logger.info(f"All data saved to {args.output}")
         
     except KeyboardInterrupt:
@@ -569,4 +710,10 @@ def main():
 
 
 if __name__ == "__main__":
+    main()
+
+
+def retry_missing_main():
+    """Console-script entry point for targeted missing-verse retries."""
+    sys.argv = [sys.argv[0], "--retry-missing", *sys.argv[1:]]
     main()

@@ -91,15 +91,15 @@ Once scraping is complete (or even while it's running), verify that all books, c
 python verify.py
 ```
 
-This checks all 66 canonical books and 31,102 verses per translation and prints a completion report:
+This checks all 66 canonical books and 31,103 verses per translation and prints a completion report. `Missing` means the verse is still absent from your JSON/cache; `SrcBlank` means BibleHub shows that translation label but leaves the verse text blank.
 
 ```
-  Translation          Present Expected  Missing  Complete
-  -------------------- -------- -------- -------- ---------
-  BSB                   31,102   31,102        0   100.0%  OK
-  ESV                   31,102   31,102        0   100.0%  OK
-  KJV                   31,102   31,102        0   100.0%  OK
-  NIV                   31,095   31,102        7    99.9%  INCOMPLETE
+  Translation          Present Expected  Missing SrcBlank  Complete
+  -------------------- -------- -------- -------- -------- ---------
+  BSB                   31,086   31,086        0        0   100.0%  OK
+  ESV                   31,085   31,085        0        1   100.0%  SOURCE_BLANKS
+  KJV                   31,102   31,102        0        0   100.0%  OK
+  CEV                   27,863   31,086    3,223        0    89.6%  INCOMPLETE
   ...
 ```
 
@@ -113,7 +113,22 @@ python verify.py --version NIV
 python verify.py --summary
 ```
 
-If any translation shows `INCOMPLETE`, re-run the scraper with `--resume` to fill the gaps.
+If a translation shows `SOURCE_BLANKS`, the local data is complete for the text BibleHub exposes on its verse pages. If any translation shows `INCOMPLETE`, run a targeted retry instead of re-running the entire scrape:
+
+```powershell
+# Retry only verse pages that verify.py reports as truly missing
+python scraper.py --retry-missing
+
+# Re-download those pages instead of using cached HTML first
+python scraper.py --retry-missing --force-refresh
+```
+
+If the package is installed, the same targeted retry is also available as:
+
+```powershell
+bible-scraper-retry-missing
+bible-scraper-retry-missing --force-refresh
+```
 
 ---
 

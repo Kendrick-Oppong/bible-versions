@@ -16,7 +16,11 @@ Usage:
 import json
 import argparse
 import sys
+import re
 from pathlib import Path
+
+from bs4 import BeautifulSoup
+from bs4.element import NavigableString, Tag
 
 # ─── Canonical Bible Structure ────────────────────────────────────────────────
 # Book name -> list of verse counts per chapter (in order)
@@ -152,6 +156,112 @@ STANDARD_OMISSIONS: set[tuple[str, int, int]] = {
 
 TOTAL_CANONICAL_VERSES = sum(sum(v) for v in BIBLE_STRUCTURE.values())
 
+SOURCE_BLANK_CACHE: dict[tuple[str, str, int, int], bool] = {}
+PAGE_TRANSLATION_CACHE: dict[tuple[str, int, int], dict[str, list[str]]] = {}
+
+
+def normalize_translation_name(name: str) -> str:
+    """Normalize translation names enough to compare cache labels to JSON keys."""
+    cleaned = re.sub(r"\s+", " ", name).strip().upper()
+    cleaned = cleaned.replace("®", "")
+    cleaned = cleaned.replace("Ž", "")
+    return cleaned
+
+
+def cache_file_for(book: str, chapter: int, verse: int) -> Path:
+    """Return the canonical scraper cache file path for a verse page."""
+    return Path("html_cache") / book.replace(" ", "_") / f"{chapter}-{verse}.htm"
+
+
+def collect_following_verse_text(version_span: Tag) -> str:
+    """Collect verse text after a BibleHub translation label until the next block."""
+    verse_parts: list[str] = []
+    current = version_span.next_sibling
+
+    def collect_text(node) -> bool:
+        if isinstance(node, NavigableString):
+            text = str(node).strip()
+            if text:
+                verse_parts.append(text)
+            return True
+
+        if isinstance(node, Tag):
+            if node.name == "span" and "versiontext" in (node.get("class") or []):
+                return False
+            if node.name in ["div", "table", "tr", "td", "th", "ul", "ol", "li", "hr"]:
+                return False
+            for child in node.children:
+                if collect_text(child) is False:
+                    return False
+        return True
+
+    while current and (
+        str(current).strip() == ""
+        or (hasattr(current, "name") and current.name == "br")
+    ):
+        current = current.next_sibling
+
+    while current:
+        if isinstance(current, Tag):
+            if current.name == "span" and "versiontext" in (current.get("class") or []):
+                break
+            if current.name in ["div", "table", "tr", "td", "th", "ul", "ol", "li", "hr"]:
+                break
+        if collect_text(current) is False:
+            break
+        current = current.next_sibling
+
+    return re.sub(r"\s+", " ", " ".join(verse_parts)).strip()
+
+
+def cached_page_translations(book: str, chapter: int, verse: int) -> dict[str, list[str]]:
+    """Parse one cached BibleHub verse page into normalized labels and verse text."""
+    page_key = (book, chapter, verse)
+    if page_key in PAGE_TRANSLATION_CACHE:
+        return PAGE_TRANSLATION_CACHE[page_key]
+
+    cache_file = cache_file_for(book, chapter, verse)
+    if not cache_file.exists():
+        PAGE_TRANSLATION_CACHE[page_key] = {}
+        return PAGE_TRANSLATION_CACHE[page_key]
+
+    try:
+        html_content = cache_file.read_text(encoding="utf-8")
+    except OSError:
+        PAGE_TRANSLATION_CACHE[page_key] = {}
+        return PAGE_TRANSLATION_CACHE[page_key]
+
+    soup = BeautifulSoup(html_content, "lxml")
+    translations: dict[str, list[str]] = {}
+
+    for version_span in soup.find_all("span", class_="versiontext"):
+        link = version_span.find("a")
+        if not link:
+            continue
+        label = normalize_translation_name(link.get_text(strip=True))
+        translations.setdefault(label, []).append(collect_following_verse_text(version_span))
+
+    PAGE_TRANSLATION_CACHE[page_key] = translations
+    return translations
+
+
+def is_source_blank(version_code: str, book: str, chapter: int, verse: int) -> bool:
+    """
+    Check whether the cached BibleHub page contains the translation label but
+    no verse text. That usually means the source intentionally leaves it blank.
+    """
+    cache_key = (normalize_translation_name(version_code), book, chapter, verse)
+    if cache_key in SOURCE_BLANK_CACHE:
+        return SOURCE_BLANK_CACHE[cache_key]
+
+    target_name = normalize_translation_name(version_code)
+    translations = cached_page_translations(book, chapter, verse)
+    SOURCE_BLANK_CACHE[cache_key] = (
+        target_name in translations
+        and not any(text.strip() for text in translations[target_name])
+    )
+    return SOURCE_BLANK_CACHE[cache_key]
+
 
 def canonical_name(book: str) -> str:
     """Resolve any underscore-style book names to their canonical form."""
@@ -192,6 +302,7 @@ def verify_version(version_code: str, version_data: dict, summary_only: bool) ->
         books_to_check = []
 
     missing: list[str] = []
+    source_blanks: list[str] = []
     expected_verses = 0
     present_verses = 0
     omitted_expected_count = 0
@@ -229,6 +340,11 @@ def verify_version(version_code: str, version_data: dict, summary_only: bool) ->
                 if verse_text is None or str(verse_text).strip() == "":
                     if is_standard_omission:
                         omitted_expected_count += 1
+                    elif is_source_blank(version_code, canonical_book, chapter_idx, verse_idx):
+                        omitted_expected_count += 1
+                        source_blanks.append(
+                            f"[SOURCE BLANK] {canonical_book} {chapter_idx}:{verse_idx}"
+                        )
                     else:
                         missing.append(
                             f"[MISSING VERSE] {canonical_book} {chapter_idx}:{verse_idx}"
@@ -247,11 +363,19 @@ def verify_version(version_code: str, version_data: dict, summary_only: bool) ->
         if len(missing) > 50:
             print(f"    ... and {len(missing) - 50} more.")
 
+    if not summary_only and source_blanks:
+        print(f"\n  Source blanks ({len(source_blanks)}):")
+        for item in source_blanks[:50]:
+            print(f"    {item}")
+        if len(source_blanks) > 50:
+            print(f"    ... and {len(source_blanks) - 50} more.")
+
     return {
         "present": present_verses,
         "expected": expected_verses,
         "adjusted_expected": adjusted_expected,
         "missing_count": len(missing),
+        "source_blank_count": len(source_blanks),
         "completion_pct": completion_pct,
         "scope": scope,
         "omitted_expected": omitted_expected_count
@@ -301,25 +425,31 @@ def main() -> None:
 
     print(f"\nFound {len(bible_data)} translations total. Verifying {len(versions_to_check)}...\n")
     print(f"  Canonical Bible: 66 books, {TOTAL_CANONICAL_VERSES:,} verses\n")
-    print(f"  {'Translation':<30} {'Scope':<12} {'Present':>8} {'Expected':>8} {'Missing':>8} {'Complete':>9}")
-    print(f"  {'-'*30} {'-'*12} {'-'*8} {'-'*8} {'-'*8} {'-'*9}")
+    print(f"  {'Translation':<30} {'Scope':<12} {'Present':>8} {'Expected':>8} {'Missing':>8} {'SrcBlank':>8} {'Complete':>9}")
+    print(f"  {'-'*30} {'-'*12} {'-'*8} {'-'*8} {'-'*8} {'-'*8} {'-'*9}")
 
     all_complete = True
     for version_code, version_data in sorted(versions_to_check.items()):
         stats = verify_version(version_code, version_data, args.summary)
-        status = "OK" if stats["missing_count"] == 0 else "INCOMPLETE"
+        status = (
+            "OK"
+            if stats["missing_count"] == 0 and stats["source_blank_count"] == 0
+            else "SOURCE_BLANKS"
+            if stats["missing_count"] == 0
+            else "INCOMPLETE"
+        )
         if stats["missing_count"] > 0:
             all_complete = False
         print(
             f"  {version_code:<30} {stats['scope']:<12} {stats['present']:>8,} {stats['adjusted_expected']:>8,}"
-            f" {stats['missing_count']:>8,} {stats['completion_pct']:>8.1f}%  {status}"
+            f" {stats['missing_count']:>8,} {stats['source_blank_count']:>8,} {stats['completion_pct']:>8.1f}%  {status}"
         )
 
     print()
     if all_complete:
-        print("All translations verified complete!")
+        print("All translations verified complete, allowing for source blanks.")
     else:
-        print("Some translations have missing verses. Re-run the scraper with --resume to fill gaps.")
+        print("Some translations have missing verses beyond source blanks. Re-run the scraper with --resume to fill gaps.")
     print()
 
 
