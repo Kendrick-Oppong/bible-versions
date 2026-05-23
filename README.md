@@ -91,15 +91,15 @@ Once scraping is complete (or even while it's running), verify that all books, c
 python verify.py
 ```
 
-This checks all 66 canonical books and 31,103 verses per translation and prints a completion report. `Missing` means the verse is still absent from your JSON/cache; `SrcBlank` means BibleHub shows that translation label but leaves the verse text blank.
+This checks all 66 canonical books and 31,103 verses per translation and prints a completion report. `Missing` means the verse is still absent from your JSON/cache, `SrcBlank` means BibleHub shows that translation label but leaves the verse text blank, and `SrcNA` means the cached BibleHub page does not include that translation label for that verse.
 
 ```
-  Translation          Present Expected  Missing SrcBlank  Complete
-  -------------------- -------- -------- -------- -------- ---------
-  BSB                   31,086   31,086        0        0   100.0%  OK
-  ESV                   31,085   31,085        0        1   100.0%  SOURCE_BLANKS
-  KJV                   31,102   31,102        0        0   100.0%  OK
-  CEV                   27,863   31,086    3,223        0    89.6%  INCOMPLETE
+  Translation          Present Expected  Missing SrcBlank    SrcNA  Complete
+  -------------------- -------- -------- -------- -------- -------- ---------
+  BSB                   31,086   31,086        0        0        0   100.0%  OK
+  ESV                   31,085   31,085        0        1        0   100.0%  SOURCE_LIMITS
+  KJV                   31,102   31,102        0        0        0   100.0%  OK
+  CEV                   27,863   27,863        0        0    3,223   100.0%  SOURCE_LIMITS
   ...
 ```
 
@@ -113,7 +113,7 @@ python verify.py --version NIV
 python verify.py --summary
 ```
 
-If a translation shows `SOURCE_BLANKS`, the local data is complete for the text BibleHub exposes on its verse pages. If any translation shows `INCOMPLETE`, run a targeted retry instead of re-running the entire scrape:
+If a translation shows `SOURCE_LIMITS`, the local data is complete for the text BibleHub exposes on its verse pages. If any translation shows `INCOMPLETE`, run a targeted retry instead of re-running the entire scrape:
 
 ```powershell
 # Retry only verse pages that verify.py reports as truly missing
@@ -150,7 +150,14 @@ Each translation is saved as a flat JSON array of verse objects:
 ]
 ```
 
-Files are created in `versions/<TRANSLATION>/<TRANSLATION>_bible.json`.
+Files are created in `versions/<CODE>/<CODE>_bible.json`.
+The exporter uses short translation codes for folder and file names, for example:
+
+```text
+versions/AMP/AMP_bible.json
+versions/NKJV/NKJV_bible.json
+versions/NIV/NIV_bible.json
+```
 
 ### Useful options
 
@@ -160,6 +167,10 @@ python export.py --output my_output_folder
 
 # Export only one translation
 python export.py --version ESV
+python export.py --version AMP
+
+# Export without the completeness report
+python export.py --no-report
 ```
 
 ---

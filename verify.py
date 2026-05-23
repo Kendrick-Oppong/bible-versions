@@ -157,6 +157,7 @@ STANDARD_OMISSIONS: set[tuple[str, int, int]] = {
 TOTAL_CANONICAL_VERSES = sum(sum(v) for v in BIBLE_STRUCTURE.values())
 
 SOURCE_BLANK_CACHE: dict[tuple[str, str, int, int], bool] = {}
+SOURCE_UNAVAILABLE_CACHE: dict[tuple[str, str, int, int], bool] = {}
 PAGE_TRANSLATION_CACHE: dict[tuple[str, int, int], dict[str, list[str]]] = {}
 
 
@@ -263,6 +264,27 @@ def is_source_blank(version_code: str, book: str, chapter: int, verse: int) -> b
     return SOURCE_BLANK_CACHE[cache_key]
 
 
+def is_source_unavailable(version_code: str, book: str, chapter: int, verse: int) -> bool:
+    """
+    Check whether the cached BibleHub page exists, but does not include this
+    translation label at all. That usually means BibleHub does not expose that
+    translation for the verse page.
+    """
+    cache_key = (normalize_translation_name(version_code), book, chapter, verse)
+    if cache_key in SOURCE_UNAVAILABLE_CACHE:
+        return SOURCE_UNAVAILABLE_CACHE[cache_key]
+
+    cache_file = cache_file_for(book, chapter, verse)
+    target_name = normalize_translation_name(version_code)
+    translations = cached_page_translations(book, chapter, verse)
+    SOURCE_UNAVAILABLE_CACHE[cache_key] = (
+        cache_file.exists()
+        and bool(translations)
+        and target_name not in translations
+    )
+    return SOURCE_UNAVAILABLE_CACHE[cache_key]
+
+
 def canonical_name(book: str) -> str:
     """Resolve any underscore-style book names to their canonical form."""
     return BOOK_NAME_ALIASES.get(book, book)
@@ -303,6 +325,7 @@ def verify_version(version_code: str, version_data: dict, summary_only: bool) ->
 
     missing: list[str] = []
     source_blanks: list[str] = []
+    source_unavailable: list[str] = []
     expected_verses = 0
     present_verses = 0
     omitted_expected_count = 0
@@ -345,6 +368,11 @@ def verify_version(version_code: str, version_data: dict, summary_only: bool) ->
                         source_blanks.append(
                             f"[SOURCE BLANK] {canonical_book} {chapter_idx}:{verse_idx}"
                         )
+                    elif is_source_unavailable(version_code, canonical_book, chapter_idx, verse_idx):
+                        omitted_expected_count += 1
+                        source_unavailable.append(
+                            f"[SOURCE UNAVAILABLE] {canonical_book} {chapter_idx}:{verse_idx}"
+                        )
                     else:
                         missing.append(
                             f"[MISSING VERSE] {canonical_book} {chapter_idx}:{verse_idx}"
@@ -370,12 +398,20 @@ def verify_version(version_code: str, version_data: dict, summary_only: bool) ->
         if len(source_blanks) > 50:
             print(f"    ... and {len(source_blanks) - 50} more.")
 
+    if not summary_only and source_unavailable:
+        print(f"\n  Source unavailable ({len(source_unavailable)}):")
+        for item in source_unavailable[:50]:
+            print(f"    {item}")
+        if len(source_unavailable) > 50:
+            print(f"    ... and {len(source_unavailable) - 50} more.")
+
     return {
         "present": present_verses,
         "expected": expected_verses,
         "adjusted_expected": adjusted_expected,
         "missing_count": len(missing),
         "source_blank_count": len(source_blanks),
+        "source_unavailable_count": len(source_unavailable),
         "completion_pct": completion_pct,
         "scope": scope,
         "omitted_expected": omitted_expected_count
@@ -425,16 +461,19 @@ def main() -> None:
 
     print(f"\nFound {len(bible_data)} translations total. Verifying {len(versions_to_check)}...\n")
     print(f"  Canonical Bible: 66 books, {TOTAL_CANONICAL_VERSES:,} verses\n")
-    print(f"  {'Translation':<30} {'Scope':<12} {'Present':>8} {'Expected':>8} {'Missing':>8} {'SrcBlank':>8} {'Complete':>9}")
-    print(f"  {'-'*30} {'-'*12} {'-'*8} {'-'*8} {'-'*8} {'-'*8} {'-'*9}")
+    print(f"  {'Translation':<30} {'Scope':<12} {'Present':>8} {'Expected':>8} {'Missing':>8} {'SrcBlank':>8} {'SrcNA':>8} {'Complete':>9}")
+    print(f"  {'-'*30} {'-'*12} {'-'*8} {'-'*8} {'-'*8} {'-'*8} {'-'*8} {'-'*9}")
 
     all_complete = True
     for version_code, version_data in sorted(versions_to_check.items()):
         stats = verify_version(version_code, version_data, args.summary)
+        source_limit_count = (
+            stats["source_blank_count"] + stats["source_unavailable_count"]
+        )
         status = (
             "OK"
-            if stats["missing_count"] == 0 and stats["source_blank_count"] == 0
-            else "SOURCE_BLANKS"
+            if stats["missing_count"] == 0 and source_limit_count == 0
+            else "SOURCE_LIMITS"
             if stats["missing_count"] == 0
             else "INCOMPLETE"
         )
@@ -442,14 +481,15 @@ def main() -> None:
             all_complete = False
         print(
             f"  {version_code:<30} {stats['scope']:<12} {stats['present']:>8,} {stats['adjusted_expected']:>8,}"
-            f" {stats['missing_count']:>8,} {stats['source_blank_count']:>8,} {stats['completion_pct']:>8.1f}%  {status}"
+            f" {stats['missing_count']:>8,} {stats['source_blank_count']:>8,} {stats['source_unavailable_count']:>8,}"
+            f" {stats['completion_pct']:>8.1f}%  {status}"
         )
 
     print()
     if all_complete:
-        print("All translations verified complete, allowing for source blanks.")
+        print("All translations verified complete, allowing for source blanks/unavailable labels.")
     else:
-        print("Some translations have missing verses beyond source blanks. Re-run the scraper with --resume to fill gaps.")
+        print("Some translations still have missing verses beyond source limits. Run: python scraper.py --retry-missing --force-refresh")
     print()
 
 

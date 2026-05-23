@@ -482,6 +482,10 @@ class BibleScraper:
                             version_code, canonical_book, chapter_idx, verse_idx
                         ):
                             continue
+                        if verify.is_source_unavailable(
+                            version_code, canonical_book, chapter_idx, verse_idx
+                        ):
+                            continue
 
                         refs.add(
                             (
