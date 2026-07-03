@@ -6,24 +6,28 @@ A web scraper that downloads the entire Bible across **38+ English translations*
 
 ```
 bible-versions/
-├── scraper.py              ← Step 1: Download all translations from BibleHub
-├── verify.py               ← Step 2: Check for missing verses
-├── export.py               ← Step 3: Export to a flat JSON format
+├── scraper.py              ← Main BibleHub scraper for the full English translation set
+├── verify.py               ← Verify scraped Bible data for completeness
+├── export.py               ← Export the main dataset into per-translation JSON files
+├── twi/                    ← Isolated Ghana/TWI-only workflow
+│   ├── scraper.py          ← TWI scraper entry point
+│   └── export.py           ← TWI export entry point
 │
 ├── README.md               ← You are here
 ├── requirements.txt        ← Python dependencies
-├── pyproject.toml          ← Package config
+├── pyproject.toml          ← Package config and console script entry points
 │
-├── bible_data.json         ← Raw scraped data (created by scraper.py)
+├── bible_data.json         ← Raw scraped data from the main scraper
 ├── scraper_progress.json   ← Resume checkpoint — do NOT delete!
 ├── bible_scraper.log       ← Scraper activity log
 │
-├── versions/               ← Per-translation output (created by export.py)
+├── versions/               ← Per-translation output (created by export.py or twi_export.py)
 │   ├── NIV/
 │   │   └── NIV_bible.json
 │   ├── ESV/
 │   │   └── ESV_bible.json
-│   └── ...
+│   └── TWI/
+│       └── TWI_bible.json
 │
 ├── html_cache/             ← Cached HTML pages (speeds up re-scraping)
 │
@@ -49,9 +53,19 @@ Make sure you have Python 3.11+ installed, then install dependencies:
 pip install -r requirements.txt
 ```
 
+If you want the optional console commands after installation, you can also install the package in editable mode:
+
+```powershell
+pip install -e .
+```
+
 ---
 
-## Step 1 — Scrape the Bible
+## Main Workflow: BibleHub English Translations
+
+This is the default full workflow for the main multi-translation BibleHub collection.
+
+### Step 1 — Scrape the Bible
 
 This downloads all translations from BibleHub, verse by verse. It scrapes ~31,000 verses and captures **38+ translations simultaneously** from each verse page.
 
@@ -62,28 +76,35 @@ python scraper.py -o bible_data.json
 > **This will take several hours.** The scraper adds a small delay between requests to be respectful to BibleHub.
 
 ### 🛡️ Accidental Overwrite Protection
+
 If you run `python scraper.py` without `--resume` but have existing data or progress files, the scraper will detect it and print a warning:
-* **Interactive terminal:** You will be prompted to either **[r] Resume** (highly recommended), **[o] Overwrite** (start fresh), or **[a] Abort**.
-* **Non-interactive terminal (scripts):** The scraper will fail safely and abort to protect your data, prompting you to explicitly pass `--resume` or `--overwrite`.
+
+- **Interactive terminal:** You will be prompted to either **[r] Resume** (highly recommended), **[o] Overwrite** (start fresh), or **[a] Abort**.
+- **Non-interactive terminal (scripts):** The scraper will fail safely and abort to protect your data, prompting you to explicitly pass `--resume` or `--overwrite`.
 
 ### 📊 Terminal Progress Bar
+
 The scraper displays a beautiful, live-updating progress bar directly in your terminal:
+
 ```
 [██████████░░░░░░░░░░░░░░]  41.5% | Genesis 24:12 | 12,900/31,102 | 4.8 v/s | ETA: 01:03:15 | Translations: 38
 ```
+
 It displays the percentage completed, active book and verse, overall verse count, speed (verses/second), estimated time remaining (ETA), and number of captured translations.
 
 ### 📝 Monitor Log File
-To keep your terminal interface clean and responsive, all detailed logs (like cache hits, downloads, and success notifications) are written directly to the log file `bible_scraper.log`. 
+
+To keep your terminal interface clean and responsive, all detailed logs (like cache hits, downloads, and success notifications) are written directly to the log file `bible_scraper.log`.
 
 To watch the live activity trail in the background, open a separate terminal and run:
+
 ```powershell
 Get-Content bible_scraper.log -Wait  # PowerShell live tail
 ```
 
 ---
 
-## Step 2 — Verify the Data
+### Step 2 — Verify the Data
 
 Once scraping is complete (or even while it's running), verify that all books, chapters, and verses were captured correctly:
 
@@ -109,6 +130,9 @@ This checks all 66 canonical books and 31,103 verses per translation and prints 
 # Check only one translation
 python verify.py --version NIV
 
+# Check the Ghana/TWI-only export directly
+python verify.py --input versions/TWI/TWI_bible.json --version TWI
+
 # Print the summary table only (no per-verse detail)
 python verify.py --summary
 ```
@@ -132,7 +156,7 @@ bible-scraper-retry-missing --force-refresh
 
 ---
 
-## Step 3 — Export the Translations
+### Step 3 — Export the Translations
 
 After verifying the data, split `bible_data.json` into individual per-translation files formatted as flat verse arrays:
 
@@ -175,7 +199,7 @@ python export.py --no-report
 
 ---
 
-## Step 4 — Use the Exported Files
+### Step 4 — Use the Exported Files
 
 After exporting, copy the translation folders you need into your target application's resources directory:
 
@@ -190,25 +214,65 @@ Copy-Item -Recurse "versions\ESV" "..\your-bible-app\resources\bibles\"
 
 The scraper captures all translations available on BibleHub's verse pages, including:
 
-| Code | Name |
-|------|------|
-| NIV | New International Version |
-| ESV | English Standard Version |
-| NLT | New Living Translation |
-| CSB | Christian Standard Bible |
-| BSB | Berean Standard Bible |
-| NASB | New American Standard Bible |
-| KJV | King James Version |
-| NKJV | New King James Version |
-| AMP | Amplified Bible |
-| MSG | The Message |
-| ...and 28+ more | |
+| Code            | Name                        |
+| --------------- | --------------------------- |
+| NIV             | New International Version   |
+| ESV             | English Standard Version    |
+| NLT             | New Living Translation      |
+| CSB             | Christian Standard Bible    |
+| BSB             | Berean Standard Bible       |
+| NASB            | New American Standard Bible |
+| KJV             | King James Version          |
+| NKJV            | New King James Version      |
+| AMP             | Amplified Bible             |
+| MSG             | The Message                 |
+| ...and 28+ more |                             |
 
 ---
 
-## Multi-Language & Apocrypha Scrapers
+## Optional Ghana/TWI-Only Workflow
 
-The `scrapers/` folder contains two additional scrapers:
+If you want a single Ghana-focused Akan/Twi Bible, use the dedicated TWI workflow instead of the main BibleHub multi-translation scrape.
+
+### Scrape TWI only
+
+```powershell
+python -m twi.scraper -o versions/TWI/TWI_bible.json
+```
+
+This writes a raw TWI dataset to the output path and keeps the TWI Bible separate from the broader English BibleHub collection.
+
+### Export TWI only
+
+```powershell
+python -m twi.export -i versions/TWI/TWI_bible_raw.json -o versions/TWI/TWI_bible.json
+```
+
+### Verify TWI only
+
+You can verify the TWI output directly with the same verifier, including flat JSON exports:
+
+```powershell
+python verify.py --input versions/TWI/TWI_bible.json --version TWI
+```
+
+If you installed the package in editable mode, the same commands are also available as:
+
+```powershell
+bible-scraper-twi --output versions/TWI/TWI_bible.json
+```
+
+### Notes about the TWI scraper
+
+- The TWI scraper is intentionally separate because it targets a Ghana-specific Akan/Twi translation from Were Kronkron rather than the main BibleHub translation bundle.
+- It is useful for local or country-specific projects where you want one TWI Bible without the larger English dataset.
+- The TWI workflow lives entirely under the dedicated [twi](twi) folder so it stays separate from the main BibleHub-based workflow.
+
+---
+
+## Multi-Language and Apocrypha Scrapers
+
+The `scrapers/` folder also contains additional scrapers for other use cases:
 
 - **`apocrypha_scraper.py`** — Scrapes the Apocrypha/Deuterocanonical books (Maccabees, Tobit, Judith, Wisdom of Solomon, etc.) included in Catholic and Orthodox Bibles but not in most Protestant Bibles.
 - **`multilang_scraper.py`** — Scrapes Bible translations in other languages (Spanish, French, German, etc.) from BibleHub's international pages. The `helpers/` subfolder contains supporting scripts for building language maps and organizing the output.
