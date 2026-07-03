@@ -11,7 +11,8 @@ bible-versions/
 ├── export.py               ← Export the main dataset into per-translation JSON files
 ├── twi/                    ← Isolated Ghana/TWI-only workflow
 │   ├── scraper.py          ← TWI scraper entry point
-│   └── export.py           ← TWI export entry point
+│   ├── export.py           ← TWI export entry point
+│   └── verify.py           ← TWI verification entry point
 │
 ├── README.md               ← You are here
 ├── requirements.txt        ← Python dependencies
@@ -70,7 +71,7 @@ This is the default full workflow for the main multi-translation BibleHub collec
 This downloads all translations from BibleHub, verse by verse. It scrapes ~31,000 verses and captures **38+ translations simultaneously** from each verse page.
 
 ```powershell
-python scraper.py -o bible_data.json
+python twi/scraper.py -o twi_bible_data.json
 ```
 
 > **This will take several hours.** The scraper adds a small delay between requests to be respectful to BibleHub.
@@ -237,29 +238,29 @@ If you want a single Ghana-focused Akan/Twi Bible, use the dedicated TWI workflo
 ### Scrape TWI only
 
 ```powershell
-python twi/scraper.py -o versions/TWI/TWI_bible.json
+python -m twi.scraper -o twi_bible_data.json
 ```
 
-This writes a raw TWI dataset to the output path and keeps the TWI Bible separate from the broader English BibleHub collection.
+This writes a single TWI data file in the repository root, keeping the workflow separate from the broader English BibleHub collection.
 
 ### Export TWI only
 
 ```powershell
-python twi/export.py -i versions/TWI/TWI_bible_raw.json -o versions/TWI/TWI_bible.json
+python -m twi.export -i twi_bible_data.json -o twi_bible_data.json
 ```
 
 ### Verify TWI only
 
-You can verify the TWI output directly with the same verifier, including flat JSON exports:
+You can verify the TWI output with the dedicated TWI verifier:
 
 ```powershell
-python verify.py --input versions/TWI/TWI_bible.json --version TWI
+python -m twi.verify -i twi_bible_data.json
 ```
 
 If you installed the package in editable mode, the same commands are also available as:
 
 ```powershell
-bible-scraper-twi --output versions/TWI/TWI_bible.json
+bible-scraper-twi --output twi_bible_data.json
 ```
 
 ### Notes about the TWI scraper
