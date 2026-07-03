@@ -238,15 +238,15 @@ If you want a single Ghana-focused Akan/Twi Bible, use the dedicated TWI workflo
 ### Scrape TWI only
 
 ```powershell
-python -m twi.scraper -o twi_bible_data.json
+python -m twi.scraper -o twi/twi_bible_data.json
 ```
 
-This writes a single TWI data file in the repository root, keeping the workflow separate from the broader English BibleHub collection.
+This writes the raw TWI scrape data to the dedicated TWI folder, keeping the workflow separate from the broader English BibleHub collection.
 
 ### Export TWI only
 
 ```powershell
-python -m twi.export -i twi_bible_data.json -o twi_bible_data.json
+python -m twi.export -i twi/twi_bible_data.json -o twi/TWI_bible.json
 ```
 
 ### Verify TWI only
@@ -254,13 +254,33 @@ python -m twi.export -i twi_bible_data.json -o twi_bible_data.json
 You can verify the TWI output with the dedicated TWI verifier:
 
 ```powershell
-python -m twi.verify -i twi_bible_data.json
+python -m twi.verify -i twi/TWI_bible.json
+```
+
+For a compact summary only:
+
+```powershell
+python -m twi.verify -i twi/TWI_bible.json --summary
 ```
 
 If you installed the package in editable mode, the same commands are also available as:
 
 ```powershell
-bible-scraper-twi --output twi_bible_data.json
+bible-scraper-twi --output twi/twi_bible_data.json
+```
+
+### Retry missing TWI verses
+
+If the TWI scrape was interrupted or some verses are still missing, you can retry only the missing ones:
+
+```powershell
+python -m twi.scraper --retry-missing
+```
+
+Or re-download them instead of relying on existing cached state:
+
+```powershell
+python -m twi.scraper --retry-missing --force-refresh
 ```
 
 ### Notes about the TWI scraper
