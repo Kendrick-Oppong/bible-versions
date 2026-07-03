@@ -237,7 +237,7 @@ If you want a single Ghana-focused Akan/Twi Bible, use the dedicated TWI workflo
 ### Scrape TWI only
 
 ```powershell
-python -m twi.scraper -o versions/TWI/TWI_bible.json
+python twi/scraper.py -o versions/TWI/TWI_bible.json
 ```
 
 This writes a raw TWI dataset to the output path and keeps the TWI Bible separate from the broader English BibleHub collection.
@@ -245,7 +245,7 @@ This writes a raw TWI dataset to the output path and keeps the TWI Bible separat
 ### Export TWI only
 
 ```powershell
-python -m twi.export -i versions/TWI/TWI_bible_raw.json -o versions/TWI/TWI_bible.json
+python twi/export.py -i versions/TWI/TWI_bible_raw.json -o versions/TWI/TWI_bible.json
 ```
 
 ### Verify TWI only
